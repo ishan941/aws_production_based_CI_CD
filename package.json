@@ -23,7 +23,20 @@
         "lint:fix": "npm run lint -- --fix --workspaces --if-present",
         "clean": "npm run clean --workspaces --if-present",
         "start:backend": "npm run start -w apps/backend",
-        "install:all": "npm install && npm run build:shared"
+        "install:all": "npm install && npm run build:shared",
+        "docker:build": "./docker/scripts/build.sh",
+        "docker:build:dev": "./docker/scripts/build.sh dev",
+        "docker:deploy": "./docker/scripts/deploy.sh",
+        "docker:deploy:dev": "./docker/scripts/deploy.sh dev",
+        "docker:up": "docker-compose up -d",
+        "docker:up:dev": "docker-compose -f docker-compose.dev.yml up -d",
+        "docker:down": "docker-compose down",
+        "docker:down:dev": "docker-compose -f docker-compose.dev.yml down",
+        "docker:logs": "docker-compose logs -f",
+        "docker:logs:dev": "docker-compose -f docker-compose.dev.yml logs -f",
+        "docker:health": "./docker/scripts/health-check.sh",
+        "docker:health:dev": "./docker/scripts/health-check.sh dev",
+        "docker:cleanup": "./docker/scripts/cleanup.sh"
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
