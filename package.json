@@ -1,0 +1,41 @@
+{
+    "name": "aws-app-monorepo",
+    "version": "1.0.0",
+    "description": "A monorepo with React frontend and NestJS backend",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "dev": "concurrently \"npm run dev:shared\" \"npm run dev:backend\" \"npm run dev:web\"",
+        "dev:web": "npm run dev -w apps/web",
+        "dev:backend": "npm run dev -w apps/backend",
+        "dev:shared": "npm run dev -w packages/shared",
+        "build": "npm run build:shared && npm run build:backend && npm run build:web",
+        "build:web": "npm run build -w apps/web",
+        "build:backend": "npm run build -w apps/backend",
+        "build:shared": "npm run build -w packages/shared",
+        "test": "npm run test --workspaces --if-present",
+        "test:web": "npm run test -w apps/web",
+        "test:backend": "npm run test -w apps/backend",
+        "lint": "npm run lint --workspaces --if-present",
+        "lint:fix": "npm run lint -- --fix --workspaces --if-present",
+        "clean": "npm run clean --workspaces --if-present",
+        "start:backend": "npm run start -w apps/backend",
+        "install:all": "npm install && npm run build:shared"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0",
+        "concurrently": "^8.0.0",
+        "prettier": "^3.0.0",
+        "@typescript-eslint/eslint-plugin": "^6.0.0",
+        "@typescript-eslint/parser": "^6.0.0",
+        "eslint": "^8.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0",
+        "npm": ">=9.0.0"
+    }
+}
