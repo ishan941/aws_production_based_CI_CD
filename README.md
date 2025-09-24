@@ -120,3 +120,27 @@ npm run lint:fix
 - `test` - Run tests across all workspaces
 - `lint` - Lint all workspaces
 - `clean` - Clean build artifacts
+
+To run in fresh
+
+```bash
+# Update package index
+sudo apt update
+
+# Install curl if not already installed
+sudo apt install -y curl
+
+# Add NodeSource repository for Node.js 20.x (LTS)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+
+# Install Node.js
+sudo apt install -y nodejs
+
+# Verify installation
+node --version
+npm --version
+```
+
+```bash
+./setup.sh
+```
