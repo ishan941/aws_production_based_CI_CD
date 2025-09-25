@@ -1,22 +1,30 @@
 # Jenkins Setup Guide for AWS App CI/CD
 
-## 🚨 Quick Fix for Current Error
+## 🚨 Quick Fix for Jenkins Errors
 
-The error you're experiencing is because the NodeJS plugin is not installed in Jenkins. Here are two solutions:
+### Current Error: "Required context class hudson.FilePath is missing"
 
-### Solution 1: Use the Simple Jenkinsfile (Recommended)
-Replace your current Jenkinsfile with the simplified version:
+This error occurs when `sh` commands in the `post` section don't have proper context. **Solution: Use the basic Jenkinsfile**
 
+### Quick Fix Options (Choose one):
+
+#### Option 1: Use Basic Jenkinsfile (Recommended for beginners)
 ```bash
-# Backup current Jenkinsfile
-mv Jenkinsfile Jenkinsfile.advanced
-
-# Use the simple version
-mv Jenkinsfile.simple Jenkinsfile
-
-# Commit the change
+# Switch to the most compatible version
+cp Jenkinsfile.basic Jenkinsfile
 git add Jenkinsfile
-git commit -m "Use simplified Jenkinsfile without NodeJS plugin dependency"
+git commit -m "Use basic Jenkinsfile - no credentials required"
+git push
+```
+
+#### Option 2: Use Fixed Jenkinsfile (Updated version)
+The current Jenkinsfile has been fixed but requires credential setup (see below).
+
+#### Option 3: Use Simple Jenkinsfile (Docker-based)
+```bash
+cp Jenkinsfile.simple Jenkinsfile
+git add Jenkinsfile  
+git commit -m "Use simple Jenkinsfile without NodeJS plugin dependency"
 git push
 ```
 
@@ -34,6 +42,7 @@ git push
 ### Required Jenkins Plugins
 
 #### Essential Plugins (Install these first):
+
 ```
 1. Pipeline
 2. Git
@@ -43,6 +52,7 @@ git push
 ```
 
 #### Optional Plugins (for enhanced features):
+
 ```
 6. NodeJS Plugin (for the advanced Jenkinsfile)
 7. OWASP Dependency Check
@@ -68,6 +78,7 @@ git push
 ### Configure Global Tools (If using advanced Jenkinsfile)
 
 #### Node.js Configuration:
+
 1. **Manage Jenkins** → **Global Tool Configuration**
 2. **NodeJS** section → **Add NodeJS**
 3. **Name:** `20` (must match the name in Jenkinsfile)
@@ -76,6 +87,7 @@ git push
 6. **Save**
 
 #### Docker Configuration:
+
 1. In **Global Tool Configuration**
 2. **Docker** section → **Add Docker**
 3. **Name:** `docker`
@@ -85,6 +97,7 @@ git push
 ### Configure Credentials
 
 #### Docker Registry Credentials:
+
 1. **Manage Jenkins** → **Manage Credentials**
 2. **Global** → **Add Credentials**
 3. **Kind:** Username with password
@@ -94,12 +107,14 @@ git push
 7. **Save**
 
 #### Docker Registry URL:
+
 1. **Add Credentials** → **Secret text**
 2. **ID:** `docker-registry-url`
 3. **Secret:** Your registry URL (e.g., `docker.io`, `your-registry.com`)
 4. **Save**
 
 #### Swarm Manager Host (Optional):
+
 1. **Add Credentials** → **Secret text**
 2. **ID:** `swarm-manager-host`
 3. **Secret:** Your swarm manager hostname/IP
@@ -122,6 +137,7 @@ git push
 ### Java and Docker Requirements
 
 Ensure your Jenkins server has:
+
 - **Java 11 or later**
 - **Docker installed and accessible**
 - **Docker Compose installed**
@@ -136,6 +152,7 @@ docker-compose --version
 ### Docker Permissions
 
 Make sure Jenkins user can run Docker:
+
 ```bash
 # Add jenkins user to docker group
 sudo usermod -aG docker jenkins
@@ -147,7 +164,8 @@ sudo systemctl restart jenkins
 ### System Resources
 
 Recommended minimum for Jenkins server:
-- **RAM:** 4GB+ 
+
+- **RAM:** 4GB+
 - **CPU:** 2+ cores
 - **Disk:** 50GB+ free space
 - **Network:** Outbound internet access
@@ -155,23 +173,29 @@ Recommended minimum for Jenkins server:
 ## 🚀 Pipeline Comparison
 
 ### Simple Jenkinsfile (Jenkinsfile.simple)
+
 **Pros:**
+
 - ✅ No plugin dependencies
 - ✅ Uses Docker for Node.js (consistent environment)
 - ✅ Works with minimal Jenkins setup
 - ✅ Easier to debug
 
 **Cons:**
+
 - Slightly slower (downloads Node.js image each time)
 - Less Jenkins-native tool integration
 
 ### Advanced Jenkinsfile (Original)
+
 **Pros:**
+
 - ✅ Faster execution (uses installed Node.js)
 - ✅ Better Jenkins tool integration
 - ✅ More advanced features
 
 **Cons:**
+
 - ❌ Requires NodeJS plugin
 - ❌ More complex setup
 - ❌ More dependencies
@@ -180,11 +204,23 @@ Recommended minimum for Jenkins server:
 
 ### Common Issues:
 
-#### 1. "Invalid tool type 'nodejs'"
+#### 1. "Required context class hudson.FilePath is missing"
+**Solution:** 
+- Use `Jenkinsfile.basic` (no credentials required)
+- Or wrap `sh` commands in `post` section with `node { }`
+
+#### 2. "ERROR: docker-registry-url" (Credential not found)
+**Solution:**
+- Use `Jenkinsfile.basic` (no credentials required)
+- Or configure credentials in Jenkins (see setup guide below)
+
+#### 3. "Invalid tool type 'nodejs'"
 **Solution:** Use `Jenkinsfile.simple` or install NodeJS plugin
 
-#### 2. "docker: command not found"
-**Solution:** 
+#### 4. "docker: command not found"
+
+**Solution:**
+
 ```bash
 # Install Docker on Jenkins server
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -194,17 +230,22 @@ sudo systemctl restart jenkins
 ```
 
 #### 3. "Permission denied" for Docker
+
 **Solution:**
+
 ```bash
 sudo usermod -aG docker jenkins
 sudo systemctl restart jenkins
 ```
 
 #### 4. Build fails on "npm ci"
+
 **Solution:** Check if package.json files exist in correct locations
 
 #### 5. "No space left on device"
+
 **Solution:**
+
 ```bash
 # Clean up Docker
 docker system prune -a
@@ -214,6 +255,7 @@ docker volume prune
 ### Debug Commands:
 
 Run these in Jenkins console (**Manage Jenkins** → **Script Console**):
+
 ```groovy
 // Check available tools
 def tools = Jenkins.instance.getDescriptor("hudson.tasks.Maven\$MavenInstallation")
@@ -229,12 +271,14 @@ println tools.getInstallations()
 ## 📊 Pipeline Monitoring
 
 ### View Pipeline Status:
+
 1. **Blue Ocean** (if installed): Better visual interface
 2. **Classic UI**: Jenkins Dashboard → Your Pipeline
 3. **Stage View**: Shows pipeline stages and timing
 4. **Console Output**: Detailed logs for debugging
 
 ### Pipeline Metrics:
+
 - **Build Duration**
 - **Success Rate**
 - **Stage Performance**
@@ -243,18 +287,21 @@ println tools.getInstallations()
 ## 🔄 Best Practices
 
 ### Security:
+
 - ✅ Use credentials for sensitive data
 - ✅ Limit plugin installations
 - ✅ Regular Jenkins updates
 - ✅ Secure Jenkins access (HTTPS, authentication)
 
 ### Performance:
+
 - ✅ Clean workspace after builds
 - ✅ Use Docker image caching
 - ✅ Parallel stage execution
 - ✅ Regular cleanup of old builds
 
 ### Maintenance:
+
 - ✅ Regular backups
 - ✅ Monitor disk space
 - ✅ Update plugins regularly
@@ -271,6 +318,7 @@ println tools.getInstallations()
 ## 📞 Support
 
 If you continue having issues:
+
 1. Check Jenkins logs: `/var/log/jenkins/jenkins.log`
 2. Review console output in Jenkins UI
 3. Test Docker commands manually on Jenkins server

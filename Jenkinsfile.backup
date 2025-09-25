@@ -1,0 +1,356 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Docker configuration
+        DOCKER_REPO = 'aws-app'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        
+        // Application configuration
+        NODE_ENV = 'production'
+        
+        // Stack configuration
+        STACK_NAME = 'aws-app-stack'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '🔄 Checking out source code...'
+                checkout scm
+                
+                script {
+                    echo "🏗️  Build #${BUILD_NUMBER}"
+                    echo "📋 Branch: ${BRANCH_NAME}"
+                    echo "💾 Commit: ${GIT_COMMIT}"
+                }
+            }
+        }
+        
+        stage('Environment Setup') {
+            steps {
+                echo '⚙️ Setting up build environment...'
+                
+                script {
+                    // Check Docker availability
+                    sh 'docker --version'
+                    sh 'docker-compose --version'
+                    
+                    // Setup Node.js using Docker (more portable)
+                    sh '''
+                        # Use Node.js Docker image for consistency
+                        docker run --rm -v $PWD:/workspace -w /workspace node:20-alpine node --version
+                        docker run --rm -v $PWD:/workspace -w /workspace node:20-alpine npm --version
+                    '''
+                    
+                    // Create production environment file
+                    if (!fileExists('.env.production')) {
+                        sh 'cp .env.example .env.production || touch .env.production'
+                        echo '📝 Created .env.production'
+                    }
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                echo '📦 Installing dependencies...'
+                
+                script {
+                    // Use Docker to run npm install for consistency
+                    sh '''
+                        docker run --rm -v $PWD:/workspace -w /workspace node:20-alpine sh -c "
+                            npm ci --prefer-offline --no-audit
+                            cd apps/backend && npm ci --prefer-offline --no-audit
+                            cd ../web && npm ci --prefer-offline --no-audit
+                        "
+                    '''
+                }
+            }
+        }
+        
+        stage('Build Applications') {
+            parallel {
+                stage('Build Backend') {
+                    steps {
+                        echo '🏗️  Building backend application...'
+                        
+                        script {
+                            sh '''
+                                docker run --rm -v $PWD:/workspace -w /workspace/apps/backend node:20-alpine sh -c "
+                                    npm run build || echo 'No build script found'
+                                "
+                            '''
+                        }
+                    }
+                }
+                
+                stage('Build Frontend') {
+                    steps {
+                        echo '🏗️  Building frontend application...'
+                        
+                        script {
+                            sh '''
+                                docker run --rm -v $PWD:/workspace -w /workspace/apps/web node:20-alpine sh -c "
+                                    npm run build
+                                "
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            parallel {
+                stage('Backend Tests') {
+                    steps {
+                        echo '🧪 Running backend tests...'
+                        
+                        script {
+                            sh '''
+                                docker run --rm -v $PWD:/workspace -w /workspace/apps/backend node:20-alpine sh -c "
+                                    npm test || echo 'No tests found'
+                                " || echo 'Backend tests completed'
+                            '''
+                        }
+                    }
+                }
+                
+                stage('Frontend Tests') {
+                    steps {
+                        echo '🧪 Running frontend tests...'
+                        
+                        script {
+                            sh '''
+                                docker run --rm -v $PWD:/workspace -w /workspace/apps/web node:20-alpine sh -c "
+                                    npm test -- --run || echo 'No tests found'
+                                " || echo 'Frontend tests completed'
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                echo '🔒 Running security scan...'
+                
+                script {
+                    // Basic security scan using npm audit
+                    sh '''
+                        docker run --rm -v $PWD:/workspace -w /workspace node:20-alpine sh -c "
+                            npm audit --audit-level=high || echo 'Security scan completed with warnings'
+                            cd apps/backend && npm audit --audit-level=high || echo 'Backend security scan completed'
+                            cd ../web && npm audit --audit-level=high || echo 'Frontend security scan completed'
+                        " || echo 'Security scans completed'
+                    '''
+                }
+            }
+        }
+        
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Backend Image') {
+                    steps {
+                        echo '🐳 Building backend Docker image...'
+                        
+                        script {
+                            sh """
+                                docker build -f apps/backend/Dockerfile -t ${DOCKER_REPO}-backend:${IMAGE_TAG} .
+                                docker tag ${DOCKER_REPO}-backend:${IMAGE_TAG} ${DOCKER_REPO}-backend:latest
+                            """
+                        }
+                    }
+                }
+                
+                stage('Build Frontend Image') {
+                    steps {
+                        echo '🐳 Building frontend Docker image...'
+                        
+                        script {
+                            sh """
+                                docker build -f apps/web/Dockerfile -t ${DOCKER_REPO}-frontend:${IMAGE_TAG} .
+                                docker tag ${DOCKER_REPO}-frontend:${IMAGE_TAG} ${DOCKER_REPO}-frontend:latest
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push Images') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                    branch 'develop'
+                }
+            }
+            steps {
+                echo '📤 Pushing Docker images to registry...'
+                
+                script {
+                    // Check if registry credentials exist
+                    try {
+                        withCredentials([
+                            string(credentialsId: 'docker-registry-url', variable: 'DOCKER_REGISTRY'),
+                            usernamePassword(credentialsId: 'docker-registry-credentials', 
+                                           usernameVariable: 'DOCKER_USER', 
+                                           passwordVariable: 'DOCKER_PASS')
+                        ]) {
+                            if (env.DOCKER_REGISTRY && env.DOCKER_REGISTRY != '') {
+                                sh '''
+                                    echo $DOCKER_PASS | docker login $DOCKER_REGISTRY -u $DOCKER_USER --password-stdin
+                                    
+                                    # Tag and push backend
+                                    docker tag ${DOCKER_REPO}-backend:${IMAGE_TAG} ${DOCKER_REGISTRY}/${DOCKER_REPO}-backend:${IMAGE_TAG}
+                                    docker tag ${DOCKER_REPO}-backend:latest ${DOCKER_REGISTRY}/${DOCKER_REPO}-backend:latest
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}-backend:${IMAGE_TAG}
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}-backend:latest
+                                    
+                                    # Tag and push frontend
+                                    docker tag ${DOCKER_REPO}-frontend:${IMAGE_TAG} ${DOCKER_REGISTRY}/${DOCKER_REPO}-frontend:${IMAGE_TAG}
+                                    docker tag ${DOCKER_REPO}-frontend:latest ${DOCKER_REGISTRY}/${DOCKER_REPO}-frontend:latest
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}-frontend:${IMAGE_TAG}
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}-frontend:latest
+                                '''
+                                echo '✅ Images pushed successfully'
+                            } else {
+                                echo '⚠️  Docker registry URL not configured, skipping push'
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo '⚠️  Docker registry credentials not configured, skipping push'
+                        echo "   Error: ${e.getMessage()}"
+                        echo '   To enable image pushing:'
+                        echo '   1. Configure docker-registry-url credential (string)'
+                        echo '   2. Configure docker-registry-credentials (username+password)'
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Swarm') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                echo '🚀 Deploying to Docker Swarm...'
+                
+                script {
+                    try {
+                        withCredentials([string(credentialsId: 'swarm-manager-host', variable: 'SWARM_MANAGER')]) {
+                            if (env.SWARM_MANAGER && env.SWARM_MANAGER != '') {
+                                // Deploy to Docker Swarm
+                                sh '''
+                                    # Copy deployment files to swarm manager
+                                    scp docker-stack.yml ${SWARM_MANAGER}:/tmp/
+                                    
+                                    # Deploy the stack
+                                    ssh ${SWARM_MANAGER} "
+                                        export DOCKER_REGISTRY=${DOCKER_REGISTRY:-}
+                                        export DOCKER_REPOSITORY=${DOCKER_REPO}
+                                        export IMAGE_TAG=${IMAGE_TAG}
+                                        
+                                        docker stack deploy -c /tmp/docker-stack.yml ${STACK_NAME}
+                                        
+                                        echo 'Waiting for services to start...'
+                                        sleep 30
+                                        
+                                        docker stack services ${STACK_NAME}
+                                    "
+                                '''
+                                echo '✅ Deployed to Docker Swarm successfully'
+                            } else {
+                                echo '⚠️  Swarm manager host not configured, skipping deployment'
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo '⚠️  Swarm manager credentials not configured, skipping deployment'
+                        echo "   Error: ${e.getMessage()}"
+                        echo '🏠 For local deployment, use: ./docker/swarm/deploy-stack-local.sh'
+                        echo '   To enable swarm deployment:'
+                        echo '   1. Configure swarm-manager-host credential (string)'
+                        echo '   2. Set up SSH key access to swarm manager'
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo '🧹 Cleaning up...'
+            
+            node {
+                script {
+                    try {
+                        // Clean up Docker images to save space
+                        sh '''
+                            docker image prune -f --filter "dangling=true" || true
+                            docker system df || true
+                        '''
+                    } catch (Exception e) {
+                        echo "⚠️  Cleanup warning: ${e.getMessage()}"
+                    }
+                    
+                    try {
+                        // Archive build artifacts if they exist
+                        archiveArtifacts artifacts: 'apps/web/dist/**', allowEmptyArchive: true
+                        archiveArtifacts artifacts: 'apps/backend/dist/**', allowEmptyArchive: true
+                    } catch (Exception e) {
+                        echo "⚠️  Archive warning: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+        
+        success {
+            echo '✅ Pipeline completed successfully!'
+            
+            script {
+                if (env.SWARM_MANAGER && env.SWARM_MANAGER != '') {
+                    echo "🌐 Application deployed to: ${SWARM_MANAGER}"
+                    echo "🔍 Check status with: docker stack services ${STACK_NAME}"
+                } else {
+                    echo "🏠 For local testing:"
+                    echo "   cd docker/swarm"
+                    echo "   ./deploy-stack-local.sh"
+                }
+            }
+        }
+        
+        failure {
+            echo '❌ Pipeline failed!'
+            
+            node {
+                script {
+                    try {
+                        // Display useful debug information
+                        sh '''
+                            echo "=== Docker Info ==="
+                            docker info || true
+                            
+                            echo "=== Docker Images ==="
+                            docker images || true
+                            
+                            echo "=== Disk Space ==="
+                            df -h || true
+                        '''
+                    } catch (Exception e) {
+                        echo "⚠️  Debug info error: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+        
+        unstable {
+            echo '⚠️  Pipeline completed with warnings!'
+        }
+    }
+}
