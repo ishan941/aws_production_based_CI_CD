@@ -5,12 +5,55 @@ A modern monorepo containing a React frontend and NestJS backend application.
 ## Structure
 
 ```
+aws_app/
+├── .dockerignore                    # Root level Docker ignore
+├── .env.example                     # Environment variables template
+├── .env                            # Environment variables (git-ignored)
+├── docker-compose.yml              # Production Docker Compose
+├── docker-compose.dev.yml          # Development Docker Compose
+├── docker-compose.override.yml     # Optional overrides
+├── package.json                    # Root package.json
+├── setup.sh                       # Your existing setup script
+├── README.md
+├── .gitignore
+│
 ├── apps/
-│   ├── web/          # React frontend application
-│   └── backend/      # NestJS backend application
+│   ├── web/                        # Frontend application
+│   │   ├── Dockerfile              # Production frontend Dockerfile
+│   │   ├── Dockerfile.dev          # Development frontend Dockerfile
+│   │   ├── nginx.conf              # Nginx configuration
+│   │   ├── package.json
+│   │   ├── vite.config.js
+│   │   ├── src/
+│   │   ├── public/
+│   │   └── dist/                   # Build output
+│   │
+│   └── backend/                    # Backend application
+│       ├── Dockerfile              # Production backend Dockerfile ✅ (You have this)
+│       ├── Dockerfile.dev          # Development backend Dockerfile
+│       ├── package.json
+│       ├── src/
+│       └── dist/                   # Build output
+│
 ├── packages/
-│   └── shared/       # Shared utilities and types
-└── package.json      # Root package.json with workspace configuration
+│   └── shared/                     # Shared package
+│       ├── package.json
+│       ├── src/
+│       └── dist/                   # Build output
+│
+├── docker/                         # Optional: Docker utilities folder
+│   ├── nginx/
+│   │   └── nginx.conf              # Alternative nginx config location
+│   ├── scripts/
+│   │   ├── build.sh               # Docker build scripts
+│   │   └── deploy.sh              # Deployment scripts
+│   └── healthcheck/
+│       └── healthcheck.js         # Custom health check scripts
+│
+└── deployment/                     # Optional: Deployment configurations
+    ├── docker-compose.prod.yml    # Production-specific compose
+    ├── docker-compose.staging.yml # Staging environment
+    └── k8s/                       # Kubernetes manifests (if needed)
 ```
 
 ## Getting Started

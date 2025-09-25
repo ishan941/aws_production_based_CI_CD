@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   web-dev:
     build:
@@ -13,7 +11,8 @@ services:
       - /app/apps/web/node_modules
     environment:
       - NODE_ENV=development
-      - VITE_API_URL=http://localhost:3001
+      - DOCKER_ENV=true
+      - VITE_API_URL=http://backend-dev:3001
     depends_on:
       - backend-dev
     networks:
