@@ -20,6 +20,11 @@ cp .env.example .env
 nano .env
 ```
 
+```bash
+chmod +x docker/scripts/health-check.sh
+
+```
+
 ### 2. Development Environment
 
 ```bash
