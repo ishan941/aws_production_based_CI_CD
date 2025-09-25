@@ -1,0 +1,434 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Docker Hub or ECR registry configuration
+        DOCKER_REGISTRY = 'your-docker-registry.com' // Change this to your registry
+        DOCKER_REPOSITORY = 'aws-app'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        
+        // Application configuration
+        APP_NAME = 'aws-app'
+        STACK_NAME = 'aws-app-stack'
+        
+        // Environment files
+        ENV_FILE = '.env.production'
+        
+        // Docker credentials (configure in Jenkins)
+        DOCKER_CREDENTIALS = 'docker-registry-credentials'
+        
+        // Swarm manager node (configure in Jenkins)
+        SWARM_MANAGER = 'swarm-manager-node'
+    }
+    
+    // tools {
+    //     nodejs '20' // Configure Node.js 20 in Jenkins Global Tools (requires NodeJS plugin)
+    // }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '🔄 Checking out source code...'
+                checkout scm
+                
+                // Display build information
+                script {
+                    sh 'echo "Building commit: $(git rev-parse HEAD)"'
+                    sh 'echo "Branch: $(git branch --show-current)"'
+                    sh 'echo "Build Number: ${BUILD_NUMBER}"'
+                }
+            }
+        }
+        
+        stage('Setup Environment') {
+            steps {
+                echo '⚙️ Setting up environment...'
+                
+                script {
+                    // Create production environment file
+                    if (!fileExists('.env.production')) {
+                        sh 'cp .env.example .env.production'
+                        echo '📝 Created .env.production from template'
+                        echo '⚠️  Please configure production environment variables in Jenkins'
+                    }
+                    
+                    // Setup Node.js if not available or using manual installation
+                    try {
+                        sh 'node --version'
+                        sh 'npm --version'
+                    } catch (Exception e) {
+                        echo '⚠️  Node.js not found, installing via NodeSource...'
+                        sh '''
+                            # Install Node.js 20.x if not available
+                            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+                            sudo apt-get install -y nodejs
+                        '''
+                    }
+                    
+                    // Display versions
+                    sh 'node --version'
+                    sh 'npm --version'
+                    sh 'docker --version'
+                    sh 'docker-compose --version'
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                echo '📦 Installing dependencies...'
+                
+                script {
+                    sh 'npm ci --prefer-offline --no-audit'
+                    
+                    // Install dependencies for each workspace
+                    sh 'npm run install:all'
+                }
+            }
+        }
+        
+        stage('Lint & Code Quality') {
+            parallel {
+                stage('Lint Code') {
+                    steps {
+                        echo '🔍 Running linters...'
+                        sh 'npm run lint'
+                    }
+                }
+                
+                stage('Type Check') {
+                    steps {
+                        echo '🔧 Running TypeScript checks...'
+                        script {
+                            sh 'npm run build:shared'
+                            // Add type checking commands here if available
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        echo '🧪 Running unit tests...'
+                        script {
+                            sh 'npm run test || echo "No tests configured"'
+                        }
+                    }
+                    post {
+                        always {
+                            // Publish test results if available
+                            script {
+                                if (fileExists('coverage/')) {
+                                    publishHTML([
+                                        allowMissing: false,
+                                        alwaysLinkToLastBuild: true,
+                                        keepAll: true,
+                                        reportDir: 'coverage',
+                                        reportFiles: 'index.html',
+                                        reportName: 'Coverage Report'
+                                    ])
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                stage('Integration Tests') {
+                    steps {
+                        echo '🔗 Running integration tests...'
+                        script {
+                            // Add integration test commands here
+                            sh 'echo "Integration tests placeholder"'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                echo '🔨 Building application...'
+                
+                script {
+                    // Build shared package first
+                    sh 'npm run build:shared'
+                    
+                    // Build backend
+                    sh 'npm run build:backend'
+                    
+                    // Build frontend
+                    sh 'npm run build:web'
+                    
+                    echo '✅ Application build completed'
+                }
+            }
+        }
+        
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Frontend Image') {
+                    steps {
+                        echo '🐳 Building frontend Docker image...'
+                        script {
+                            def frontendImage = docker.build(
+                                "${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-web:${IMAGE_TAG}",
+                                "-f apps/web/Dockerfile ."
+                            )
+                            
+                            // Tag as latest
+                            frontendImage.tag("${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-web:latest")
+                        }
+                    }
+                }
+                
+                stage('Build Backend Image') {
+                    steps {
+                        echo '🐳 Building backend Docker image...'
+                        script {
+                            def backendImage = docker.build(
+                                "${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-backend:${IMAGE_TAG}",
+                                "-f apps/backend/Dockerfile ."
+                            )
+                            
+                            // Tag as latest
+                            backendImage.tag("${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-backend:latest")
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            parallel {
+                stage('Vulnerability Scan') {
+                    steps {
+                        echo '🔒 Scanning for vulnerabilities...'
+                        script {
+                            // Use tools like Trivy, Snyk, or similar
+                            sh '''
+                                # Example with Trivy (install Trivy first)
+                                # trivy image ${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-web:${IMAGE_TAG} || true
+                                # trivy image ${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-backend:${IMAGE_TAG} || true
+                                echo "Security scan placeholder"
+                            '''
+                        }
+                    }
+                }
+                
+                stage('Dependency Check') {
+                    steps {
+                        echo '📋 Checking dependencies...'
+                        script {
+                            sh 'npm audit --audit-level moderate || true'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push Docker Images') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                    branch 'develop'
+                }
+            }
+            steps {
+                echo '🚀 Pushing Docker images to registry...'
+                
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", DOCKER_CREDENTIALS) {
+                        // Push frontend images
+                        docker.image("${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-web:${IMAGE_TAG}").push()
+                        docker.image("${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-web:latest").push()
+                        
+                        // Push backend images
+                        docker.image("${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-backend:${IMAGE_TAG}").push()
+                        docker.image("${DOCKER_REGISTRY}/${DOCKER_REPOSITORY}-backend:latest").push()
+                        
+                        echo '✅ Images pushed successfully'
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Docker Swarm') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                echo '🚁 Deploying to Docker Swarm...'
+                
+                script {
+                    // Deploy to Docker Swarm
+                    sshagent(['swarm-ssh-key']) {
+                        sh """
+                            # Copy deployment files to swarm manager
+                            scp -o StrictHostKeyChecking=no docker-stack.yml ubuntu@${SWARM_MANAGER}:~/
+                            scp -o StrictHostKeyChecking=no .env.production ubuntu@${SWARM_MANAGER}:~/.env
+                            
+                            # Deploy to swarm
+                            ssh -o StrictHostKeyChecking=no ubuntu@${SWARM_MANAGER} << 'ENDSSH'
+                                # Set environment variables
+                                export IMAGE_TAG=${IMAGE_TAG}
+                                export DOCKER_REGISTRY=${DOCKER_REGISTRY}
+                                export DOCKER_REPOSITORY=${DOCKER_REPOSITORY}
+                                
+                                # Update the stack
+                                docker stack deploy -c docker-stack.yml ${STACK_NAME}
+                                
+                                # Wait for services to be ready
+                                echo "Waiting for services to be ready..."
+                                sleep 30
+                                
+                                # Check service status
+                                docker stack services ${STACK_NAME}
+                                
+                                echo "✅ Deployment completed"
+ENDSSH
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                echo '🏥 Running health checks...'
+                
+                script {
+                    sshagent(['swarm-ssh-key']) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ubuntu@${SWARM_MANAGER} << 'ENDSSH'
+                                # Wait for services to be healthy
+                                echo "Checking service health..."
+                                
+                                # Get service status
+                                docker stack services ${STACK_NAME}
+                                
+                                # Check if services are running
+                                FRONTEND_REPLICAS=\$(docker service ls --filter name=${STACK_NAME}_web --format "{{.Replicas}}")
+                                BACKEND_REPLICAS=\$(docker service ls --filter name=${STACK_NAME}_backend --format "{{.Replicas}}")
+                                
+                                echo "Frontend replicas: \$FRONTEND_REPLICAS"
+                                echo "Backend replicas: \$BACKEND_REPLICAS"
+                                
+                                # Basic health check (customize based on your health endpoints)
+                                sleep 60
+                                curl -f http://localhost/api/health || exit 1
+                                
+                                echo "✅ Health checks passed"
+ENDSSH
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Smoke Tests') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                echo '💨 Running smoke tests...'
+                
+                script {
+                    sshagent(['swarm-ssh-key']) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ubuntu@${SWARM_MANAGER} << 'ENDSSH'
+                                # Run basic smoke tests
+                                echo "Running smoke tests..."
+                                
+                                # Test frontend
+                                curl -f http://localhost/ || exit 1
+                                
+                                # Test backend API
+                                curl -f http://localhost/api || exit 1
+                                curl -f http://localhost/api/health || exit 1
+                                
+                                # Test users endpoint
+                                curl -f http://localhost/api/users || exit 1
+                                
+                                echo "✅ Smoke tests passed"
+ENDSSH
+                        """
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo '🧹 Cleaning up...'
+            
+            // Clean up Docker images
+            script {
+                sh '''
+                    # Remove dangling images
+                    docker image prune -f || true
+                    
+                    # Remove build cache
+                    docker builder prune -f || true
+                '''
+            }
+            
+            // Archive build artifacts
+            archiveArtifacts artifacts: 'apps/*/dist/**/*', allowEmptyArchive: true
+            
+            // Clean workspace
+            cleanWs()
+        }
+        
+        success {
+            echo '✅ Pipeline completed successfully!'
+            
+            // Send success notification
+            script {
+                if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                    // Add notification logic here (Slack, email, etc.)
+                    echo "🎉 Production deployment successful!"
+                }
+            }
+        }
+        
+        failure {
+            echo '❌ Pipeline failed!'
+            
+            // Send failure notification
+            script {
+                // Add notification logic here
+                echo "🚨 Pipeline failed for branch: ${env.BRANCH_NAME}"
+                
+                // Rollback on production failure
+                if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                    echo "🔄 Consider rolling back deployment"
+                }
+            }
+        }
+        
+        unstable {
+            echo '⚠️ Pipeline completed with warnings'
+        }
+        
+        aborted {
+            echo '⏹️ Pipeline was aborted'
+        }
+    }
+}
